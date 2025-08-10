@@ -6,6 +6,7 @@ import (
 	"pathy/internal/fs"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -20,7 +21,8 @@ type Model struct {
 
 	// prompt state
 	promptActive bool
-	prompt       Prompt
+	promptForm   *huh.Form
+	promptValue  string
 	promptAction string
 }
 
@@ -35,24 +37,33 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.promptActive {
-		var cmd tea.Cmd
+		formModel, cmd := m.promptForm.Update(msg)
 
-		m.prompt, cmd = m.prompt.Update(msg)
-		if submit, ok := msg.(PromptSubmitMsg); ok {
+		if f, ok := formModel.(*huh.Form); ok {
+			m.promptForm = f
+		}
+
+		if m.promptForm.State == huh.StateCompleted {
+			name := m.promptForm.GetString("name")
+
 			m.promptActive = false
-			if submit.Text != "" {
-				switch m.promptAction {
-				case "create":
-					newFilePath := fs.Join(m.cwd, submit.Text)
-					return m, fs.CreateFile(newFilePath)
-				case "rename":
-					if len(m.files) > 0 {
-						oldPath := fs.Join(m.cwd, m.files[m.cursor].Name())
-						newPath := fs.Join(m.cwd, submit.Text)
-						return m, fs.RenameFile(oldPath, newPath)
-					}
+
+			switch m.promptAction {
+			case "create":
+				return m, fs.CreateFile(fs.Join(m.cwd, name))
+			case "rename":
+				if len(m.files) > 0 {
+					old := fs.Join(m.cwd, m.files[m.cursor].Name())
+					newp := fs.Join(m.cwd, name)
+					return m, fs.RenameFile(old, newp)
 				}
 			}
+
+			return m, nil
+		}
+
+		if m.promptForm.State == huh.StateAborted {
+			m.promptActive = false
 		}
 
 		return m, cmd
@@ -86,9 +97,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.GoBack()
 			}
 		case "a":
+			m.promptValue = ""
+
+			input := huh.NewInput().Key("name").Prompt("\uf054 ").Value(&m.promptValue).Title("Create new file").Placeholder("myfile.ext")
+			group := huh.NewGroup(input)
+			m.promptForm = huh.NewForm(group).WithShowHelp(false).WithShowErrors(false).WithWidth(m.width - 8)
 			m.promptActive = true
-			m.prompt = NewPrompt("New file name")
 			m.promptAction = "create"
+
+			return m, m.promptForm.Init()
 		case "d":
 			if len(m.files) > 0 {
 				target := fs.Join(m.cwd, m.files[m.cursor].Name())
@@ -96,9 +113,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "r":
 			if len(m.files) > 0 {
+				oldname := m.files[m.cursor].Name()
+				m.promptValue = oldname
+				input := huh.NewInput().Key("name").Prompt("\uf054 ").Value(&m.promptValue).Title("Rename file").Placeholder("myfile.ext")
+				group := huh.NewGroup(input)
+				m.promptForm = huh.NewForm(group).WithShowHelp(false).WithShowErrors(false).WithWidth(m.width - 8)
 				m.promptActive = true
-				m.prompt = NewPrompt("Rename to")
 				m.promptAction = "rename"
+				return m, m.promptForm.Init()
 			}
 		}
 
@@ -153,8 +175,12 @@ func (m Model) View() string {
 		s += "(empty directory)\n"
 	}
 
-	if m.promptActive {
-		s += "\n" + m.prompt.View() + "\n"
+	if m.promptActive && m.promptForm != nil {
+		if fld := m.promptForm.GetFocusedField(); fld != nil {
+			s += "\n" + fld.View() + "\n"
+		} else {
+			s += "\n" + m.promptForm.View() + "\n"
+		}
 	}
 
 	appFrame := styles.Border.Width(m.width-4).Height(m.height-4).Margin(1).Padding(1, 2)
