@@ -6,7 +6,6 @@ import (
 	"pathy/internal/fs"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -19,11 +18,7 @@ type Model struct {
 	height  int
 	err     error
 
-	// prompt state
-	promptActive bool
-	promptForm   *huh.Form
-	promptValue  string
-	promptAction string
+	activePrompt *Prompt
 }
 
 func NewModel(startDir string) Model {
@@ -36,36 +31,29 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
-	if m.promptActive {
-		formModel, cmd := m.promptForm.Update(msg)
+	if m.activePrompt != nil {
+		done, val, cmd := m.activePrompt.Update(msg)
 
-		if f, ok := formModel.(*huh.Form); ok {
-			m.promptForm = f
-		}
+		if done {
 
-		if m.promptForm.State == huh.StateCompleted {
-			name := m.promptForm.GetString("name")
+			var finishCmd tea.Cmd = cmd
+			action := m.activePrompt.Action()
+			m.activePrompt = nil
 
-			m.promptActive = false
-
-			switch m.promptAction {
-			case "create":
-				return m, fs.CreateFile(fs.Join(m.cwd, name))
-			case "rename":
-				if len(m.files) > 0 {
+			switch action {
+			case PromptCreate:
+				if val != "" {
+					return m, tea.Batch(finishCmd, fs.CreateFile(fs.Join(m.cwd, val)))
+				}
+			case PromptRename:
+				if val != "" && len(m.files) > 0 {
 					old := fs.Join(m.cwd, m.files[m.cursor].Name())
-					newp := fs.Join(m.cwd, name)
-					return m, fs.RenameFile(old, newp)
+					newp := fs.Join(m.cwd, val)
+					return m, tea.Batch(finishCmd, fs.RenameFile(old, newp))
 				}
 			}
-
-			return m, nil
+			return m, finishCmd
 		}
-
-		if m.promptForm.State == huh.StateAborted {
-			m.promptActive = false
-		}
-
 		return m, cmd
 	}
 
@@ -97,15 +85,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.GoBack()
 			}
 		case "a":
-			m.promptValue = ""
-
-			input := huh.NewInput().Key("name").Prompt("\uf054 ").Value(&m.promptValue).Title("Create new file").Placeholder("myfile.ext")
-			group := huh.NewGroup(input)
-			m.promptForm = huh.NewForm(group).WithShowHelp(false).WithShowErrors(false).WithWidth(m.width - 8)
-			m.promptActive = true
-			m.promptAction = "create"
-
-			return m, m.promptForm.Init()
+			m.activePrompt = NewPrompt(m.width, PromptCreate, "Create new file", "my_file.ext", "")
+			return m, m.activePrompt.Init()
 		case "d":
 			if len(m.files) > 0 {
 				target := fs.Join(m.cwd, m.files[m.cursor].Name())
@@ -113,14 +94,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "r":
 			if len(m.files) > 0 {
-				oldname := m.files[m.cursor].Name()
-				m.promptValue = oldname
-				input := huh.NewInput().Key("name").Prompt("\uf054 ").Value(&m.promptValue).Title("Rename file").Placeholder("myfile.ext")
-				group := huh.NewGroup(input)
-				m.promptForm = huh.NewForm(group).WithShowHelp(false).WithShowErrors(false).WithWidth(m.width - 8)
-				m.promptActive = true
-				m.promptAction = "rename"
-				return m, m.promptForm.Init()
+				m.activePrompt = NewPrompt(m.width, PromptRename, "Rename file", "my_file.ext", m.files[m.cursor].Name())
+				return m, m.activePrompt.Init()
 			}
 		}
 
@@ -175,12 +150,8 @@ func (m Model) View() string {
 		s += "(empty directory)\n"
 	}
 
-	if m.promptActive && m.promptForm != nil {
-		if fld := m.promptForm.GetFocusedField(); fld != nil {
-			s += "\n" + fld.View() + "\n"
-		} else {
-			s += "\n" + m.promptForm.View() + "\n"
-		}
+	if m.activePrompt != nil {
+		s += "\n" + m.activePrompt.View() + "\n"
 	}
 
 	appFrame := styles.Border.Width(m.width-4).Height(m.height-4).Margin(1).Padding(1, 2)
