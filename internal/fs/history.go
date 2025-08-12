@@ -1,16 +1,60 @@
 package fs
 
-import "sync"
+import (
+	"os"
+	"path/filepath"
+	"sync"
+)
 
 type History struct {
 	dirs []string
 	mu   sync.RWMutex
 }
 
-func NewHistory() *History {
-	return &History{
+func NewHistory(currentPath string) *History {
+	h := &History{
 		dirs: make([]string, 0, 32),
 	}
+	h.initializeFromPath(currentPath)
+	return h
+}
+
+func (h *History) initializeFromPath(currentPath string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	cleanPath := filepath.Clean(currentPath)
+	if cleanPath == "." {
+		var err error
+		cleanPath, err = os.Getwd()
+		if err != nil {
+			return
+		}
+	}
+
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return
+	}
+
+	var pathComponents []string
+	current := filepath.Dir(absPath)
+
+	for current != "/" && current != "." {
+		pathComponents = append([]string{current}, pathComponents...)
+		parent := filepath.Dir(current)
+
+		if parent == current {
+			break
+		}
+		current = parent
+	}
+
+	if absPath != "/" && !filepath.IsAbs(absPath) || len(pathComponents) > 0 {
+		pathComponents = append([]string{"/"}, pathComponents...)
+	}
+
+	h.dirs = pathComponents
 }
 
 func (h *History) Push(dir string) {

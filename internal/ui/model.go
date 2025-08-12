@@ -23,7 +23,7 @@ type Model struct {
 }
 
 func NewModel(startDir string) Model {
-	return Model{cwd: startDir, history: fs.NewHistory()}
+	return Model{cwd: startDir, history: fs.NewHistory(startDir)}
 }
 
 func (m Model) Init() tea.Cmd {
