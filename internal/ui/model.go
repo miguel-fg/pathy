@@ -18,7 +18,8 @@ type Model struct {
 	height  int
 	err     error
 
-	activePrompt *Prompt
+	activePrompt       *Prompt
+	activeConfirmation *Confirmation
 }
 
 func NewModel(startDir string) Model {
@@ -36,7 +37,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if done {
 
-			var finishCmd tea.Cmd = cmd
+			var finishCmd = cmd
 			action := m.activePrompt.Action()
 			m.activePrompt = nil
 
@@ -50,6 +51,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					old := fs.Join(m.cwd, m.files[m.cursor].Name())
 					newp := fs.Join(m.cwd, val)
 					return m, tea.Batch(finishCmd, fs.RenameFile(old, newp))
+				}
+			}
+			return m, finishCmd
+		}
+		return m, cmd
+	}
+
+	if m.activeConfirmation != nil {
+		done, val, cmd := m.activeConfirmation.Update(msg)
+
+		if done {
+			var finishCmd = cmd
+			action := m.activeConfirmation.Action()
+			m.activeConfirmation = nil
+
+			switch action {
+			case ConfirmDelete:
+				if val && len(m.files) > 0 {
+					target := fs.Join(m.cwd, m.files[m.cursor].Name())
+					return m, tea.Batch(finishCmd, fs.DeleteFile(target))
 				}
 			}
 			return m, finishCmd
@@ -89,8 +110,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.activePrompt.Init()
 		case "d":
 			if len(m.files) > 0 {
-				target := fs.Join(m.cwd, m.files[m.cursor].Name())
-				return m, fs.DeleteFile(target)
+				m.activeConfirmation = NewConfirmation(m.width, ConfirmDelete, "Confirm file delete")
 			}
 		case "r":
 			if len(m.files) > 0 {
@@ -152,6 +172,10 @@ func (m Model) View() string {
 
 	if m.activePrompt != nil {
 		s += "\n" + m.activePrompt.View() + "\n"
+	}
+
+	if m.activeConfirmation != nil {
+		s += "\n" + m.activeConfirmation.View() + "\n"
 	}
 
 	appFrame := styles.Border.Width(m.width-4).Height(m.height-4).Margin(1).Padding(1, 2)
