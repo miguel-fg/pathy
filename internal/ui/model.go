@@ -1,10 +1,13 @@
 package ui
 
 import (
+	"fmt"
 	"os"
+	"strings"
 
 	"pathy/internal/fs"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -20,10 +23,14 @@ type Model struct {
 
 	activePrompt       *Prompt
 	activeConfirmation *Confirmation
+
+	viewport viewport.Model
 }
 
 func NewModel(startDir string) Model {
-	return Model{cwd: startDir, history: fs.NewHistory(startDir)}
+	vp := viewport.New(0, 0)
+
+	return Model{cwd: startDir, history: fs.NewHistory(startDir), viewport: vp}
 }
 
 func (m Model) Init() tea.Cmd {
@@ -81,6 +88,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.viewport.Width = msg.Width - 8
+		m.viewport.Height = msg.Height - 12
+		return m, nil
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -150,8 +160,7 @@ func (m Model) View() string {
 		return "Error: " + m.err.Error()
 	}
 
-	s := styles.Title.Render("Pathy v0.0.1 — "+m.cwd) + "\n\n"
-
+	var fileContent strings.Builder
 	for i, f := range m.files {
 		name := f.Name()
 
@@ -163,24 +172,45 @@ func (m Model) View() string {
 		if i == m.cursor {
 			cursor = styles.Cursor.Render("→ ")
 		}
-		s += cursor + name + "\n"
+
+		fileContent.WriteString(cursor + name + "\n")
 	}
 
 	if len(m.files) == 0 {
-		s += "(empty directory)\n"
+		fileContent.WriteString("(empty directory)\n")
+	}
+
+	m.viewport.SetContent(fileContent.String())
+
+	if m.cursor >= m.viewport.YOffset+m.viewport.Height-1 {
+		m.viewport.YOffset = m.cursor - m.viewport.Height + 1
+	} else if m.cursor < m.viewport.YOffset {
+		m.viewport.YOffset = m.cursor
+	}
+
+	title := styles.Title.Render("Pathy v0.0.1 — "+m.cwd) + "\n\n"
+	viewportContent := m.viewport.View()
+
+	var s strings.Builder
+	s.WriteString(title)
+	s.WriteString(viewportContent)
+
+	if len(m.files) > m.viewport.Height {
+		scrollInfo := fmt.Sprintf(" (%d-%d of %d)", m.viewport.YOffset+1, min(m.viewport.YOffset+m.viewport.Height), len(m.files))
+		s.WriteString("\n" + styles.Subtle.Render(scrollInfo))
 	}
 
 	if m.activePrompt != nil {
-		s += "\n" + m.activePrompt.View() + "\n"
+		s.WriteString("\n" + m.activePrompt.View() + "\n")
 	}
 
 	if m.activeConfirmation != nil {
-		s += "\n" + m.activeConfirmation.View() + "\n"
+		s.WriteString("\n" + m.activeConfirmation.View() + "\n")
 	}
 
 	appFrame := styles.Border.Width(m.width-4).Height(m.height-4).Margin(1).Padding(1, 2)
 
-	content := appFrame.Render(s)
+	content := appFrame.Render(s.String())
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
