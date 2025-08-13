@@ -28,8 +28,7 @@ func NewPrompt(width int, action PromptAction, title, placeholder, initialValue 
 		Key("name").
 		Prompt("\uf054 ").
 		Value(&p.value).
-		Title(title).
-		Placeholder(placeholder)
+		Title(title)
 
 	group := huh.NewGroup(input)
 

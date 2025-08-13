@@ -160,19 +160,39 @@ func (m Model) View() string {
 		return "Error: " + m.err.Error()
 	}
 
+	title := styles.Title.Render("Pathy v0.0.1 — " + m.cwd)
+
+	colWidth := m.width / 3
+
+	leftCol := styles.Subtle.Render(strings.Repeat(" ", colWidth))
+	rightCol := styles.Subtle.Render(strings.Repeat(" ", colWidth))
+
+	columns := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		leftCol,
+		m.middleColumn(),
+		rightCol,
+	)
+
+	content := lipgloss.JoinVertical(lipgloss.Top, title, columns)
+
+	appFrame := styles.Border.Width(m.width-4).Height(m.height-4).Padding(1, 2)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, appFrame.Render(content))
+}
+
+func (m Model) middleColumn() string {
 	var fileContent strings.Builder
+
 	for i, f := range m.files {
 		name := f.Name()
-
 		if f.IsDir() {
 			name = styles.Dir.Render(name + "/")
 		}
-
 		cursor := " "
 		if i == m.cursor {
 			cursor = styles.Cursor.Render("→ ")
 		}
-
 		fileContent.WriteString(cursor + name + "\n")
 	}
 
@@ -188,29 +208,41 @@ func (m Model) View() string {
 		m.viewport.YOffset = m.cursor
 	}
 
-	title := styles.Title.Render("Pathy v0.0.1 — "+m.cwd) + "\n\n"
-	viewportContent := m.viewport.View()
-
-	var s strings.Builder
-	s.WriteString(title)
-	s.WriteString(viewportContent)
-
+	scrollInfo := ""
 	if len(m.files) > m.viewport.Height {
-		scrollInfo := fmt.Sprintf(" (%d-%d of %d)", m.viewport.YOffset+1, min(m.viewport.YOffset+m.viewport.Height), len(m.files))
-		s.WriteString("\n" + styles.Subtle.Render(scrollInfo))
+		scrollInfo = fmt.Sprintf(" (%d-%d of %d)",
+			m.viewport.YOffset+1,
+			min(m.viewport.YOffset+m.viewport.Height),
+			len(m.files))
+		scrollInfo = styles.Subtle.Render(scrollInfo)
 	}
 
+	var footer strings.Builder
+	if scrollInfo != "" {
+		footer.WriteString(scrollInfo + "\n")
+	}
 	if m.activePrompt != nil {
-		s.WriteString("\n" + m.activePrompt.View() + "\n")
+		footer.WriteString(m.activePrompt.View() + "\n")
 	}
-
 	if m.activeConfirmation != nil {
-		s.WriteString("\n" + m.activeConfirmation.View() + "\n")
+		footer.WriteString(m.activeConfirmation.View() + "\n")
 	}
 
-	appFrame := styles.Border.Width(m.width-4).Height(m.height-4).Margin(1).Padding(1, 2)
+	footerHeight := strings.Count(footer.String(), "\n")
+	if len(footer.String()) > 0 && !strings.HasSuffix(footer.String(), "\n") {
+		footerHeight++
+	}
 
-	content := appFrame.Render(s.String())
+	colWidth := m.width / 3
+	m.viewport.Width = colWidth - 4
+	m.viewport.Height = (m.height - 8) - footerHeight
 
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		m.viewport.View(),
+		footer.String(),
+	)
+
+	colFrame := styles.Border.Width(colWidth)
+	return colFrame.Render(content)
 }
