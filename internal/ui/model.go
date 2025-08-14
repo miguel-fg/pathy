@@ -13,18 +13,20 @@ import (
 )
 
 type Model struct {
-	cwd     string
-	files   []os.DirEntry
-	history *fs.History
-	cursor  int
-	width   int
-	height  int
-	err     error
+	cwd         string
+	files       []os.DirEntry
+	parentFiles []os.DirEntry
+	history     *fs.History
+	cursor      int
+	width       int
+	height      int
+	err         error
 
 	activePrompt       *Prompt
 	activeConfirmation *Confirmation
 
-	viewport viewport.Model
+	viewport       viewport.Model
+	parentViewport viewport.Model
 }
 
 func NewModel(startDir string) Model {
@@ -141,6 +143,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.files = msg.Entries
 		m.cursor = 0
 
+		if parent, ok := m.history.Peek(); ok {
+			return m, fs.LoadParent(parent)
+		}
+
+	case fs.ParentLoadedMsg:
+		m.parentFiles = msg.Entries
+
 	case fs.ErrMsg:
 		m.err = msg.Err
 
@@ -162,14 +171,13 @@ func (m Model) View() string {
 
 	title := styles.Title.Render("Pathy v0.0.1 — " + m.cwd)
 
-	colWidth := m.width / 3
+	colWidth := 4 * (m.width / 12)
 
-	leftCol := styles.Subtle.Render(strings.Repeat(" ", colWidth))
 	rightCol := styles.Subtle.Render(strings.Repeat(" ", colWidth))
 
 	columns := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		leftCol,
+		m.leftColumn(),
 		m.middleColumn(),
 		rightCol,
 	)
@@ -233,7 +241,7 @@ func (m Model) middleColumn() string {
 		footerHeight++
 	}
 
-	colWidth := m.width / 3
+	colWidth := 5 * (m.width / 12)
 	m.viewport.Width = colWidth - 4
 	m.viewport.Height = (m.height - 8) - footerHeight
 
@@ -245,4 +253,30 @@ func (m Model) middleColumn() string {
 
 	colFrame := styles.Border.Width(colWidth)
 	return colFrame.Render(content)
+}
+
+func (m Model) leftColumn() string {
+	var content strings.Builder
+
+	if len(m.parentFiles) == 0 {
+		content.WriteString("(no parent)\n")
+	} else {
+		for _, f := range m.parentFiles {
+			name := f.Name()
+			if f.IsDir() {
+				name = styles.SideDir.Render(name + "/")
+			} else {
+				name = styles.SideEntry.Render(name)
+			}
+			content.WriteString(name + "\n")
+		}
+	}
+
+	m.parentViewport.SetContent(content.String())
+
+	colWidth := 3 * (m.width / 12)
+	m.parentViewport.Width = colWidth - 4
+	m.parentViewport.Height = m.height - 7
+	colFrame := styles.BorderSides.Width(colWidth)
+	return colFrame.Render(m.parentViewport.View())
 }
